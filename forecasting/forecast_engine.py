@@ -1,5 +1,6 @@
 import os
 import requests
+import json
 from collections import defaultdict
 from dotenv import load_dotenv
 
@@ -7,65 +8,61 @@ load_dotenv()
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 # Weather thresholds for rice blast / BPH — based on published agro-met risk models
+# "Healthy" detections need no risk forecast at all
+HEALTHY_CLASSES = {"grape__healthy", "onion__healthy", "cotton__healthy", "tomato__healthy"}
+
 DISEASE_PROFILES = {
-    "rice_blast": {"temp_range": (20, 28), "humidity_threshold": 85,
-                    "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
-    "brown_planthopper": {"temp_range": (25, 32), "humidity_threshold": 80,
-                    "rain_weight": 0.2, "humidity_weight": 0.5, "temp_weight": 0.3},
-    "tikka_leaf_spot": {"temp_range": (20, 30), "humidity_threshold": 80,
-                    "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
-    "groundnut_rust": {"temp_range": (20, 25), "humidity_threshold": 85,
-                    "rain_weight": 0.2, "humidity_weight": 0.5, "temp_weight": 0.3},
-    "sigatoka_leaf_spot": {"temp_range": (25, 28), "humidity_threshold": 80,
-                    "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
-    "banana_aphid": {"temp_range": (24, 32), "humidity_threshold": 65,
-                    "rain_weight": 0.1, "humidity_weight": 0.3, "temp_weight": 0.6},
-    "red_rot": {"temp_range": (25, 30), "humidity_threshold": 85,
-                    "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
-    "early_shoot_borer": {"temp_range": (28, 35), "humidity_threshold": 60,
-                    "rain_weight": 0.1, "humidity_weight": 0.2, "temp_weight": 0.7},
-    "bud_rot": {"temp_range": (20, 28), "humidity_threshold": 85,
-                    "rain_weight": 0.5, "humidity_weight": 0.35, "temp_weight": 0.15},
-    "rhinoceros_beetle": {"temp_range": (28, 34), "humidity_threshold": 70,
-                    "rain_weight": 0.3, "humidity_weight": 0.3, "temp_weight": 0.4},
+    # --- straight from the KB's own numeric data ---
+    "grape__downy_mildew": {"temp_range": (20, 22), "humidity_threshold": 80,
+        "rain_weight": 0.4, "humidity_weight": 0.35, "temp_weight": 0.25},
+    "grape__bacterial_leaf_spot": {"temp_range": (25, 30), "humidity_threshold": 80,
+        "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
+    "cotton__alternaria_leaf_spot": {"temp_range": (25, 28), "humidity_threshold": 80,
+        "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
+    "tomato__leaf_mold": {"temp_range": (20, 25), "humidity_threshold": 85,
+        "rain_weight": 0.2, "humidity_weight": 0.5, "temp_weight": 0.3},
+
+    # --- converted from the KB's qualitative descriptions into numbers ---
+    "grape__powdery_mildew": {"temp_range": (20, 30), "humidity_threshold": 65,
+        "rain_weight": 0.1, "humidity_weight": 0.3, "temp_weight": 0.6},  # warm + cloudy, NOT rain-driven
+    "onion__purple_blotch": {"temp_range": (21, 28), "humidity_threshold": 80,
+        "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
+    "onion__stemphylium_leaf_blight": {"temp_range": (28, 34), "humidity_threshold": 60,
+        "rain_weight": 0.1, "humidity_weight": 0.3, "temp_weight": 0.6},  # KB notes warmer March-April severity
+    "tomato__late_blight": {"temp_range": (15, 20), "humidity_threshold": 90,
+        "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},  # cool + wet, opposite of early blight
+
+    # --- KB has no environmental data yet — using the published sources the scope doc itself named ---
+    "cotton__bacterial_blight": {"temp_range": (25, 32), "humidity_threshold": 80,
+        "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
+    "cotton__bollworm": {"temp_range": (28, 35), "humidity_threshold": 60,
+        "rain_weight": 0.1, "humidity_weight": 0.2, "temp_weight": 0.7},  # pest, warm-dry favored (CROPSAP timing)
+    "tomato__early_blight": {"temp_range": (24, 29), "humidity_threshold": 80,
+        "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
 }
 
-PREVENTIVE_ALERTS = {
-    ("rice_blast", "high"): "Apply preventive fungicide (e.g., Tricyclazole) within 48 hours. Avoid excess nitrogen application.",
-    ("rice_blast", "medium"): "Monitor leaves closely for lesions over next 3-4 days; keep field drained if possible.",
-    ("rice_blast", "low"): "No immediate action needed. Continue routine field monitoring.",
-    ("brown_planthopper", "high"): "Inspect plant base for hoppers; apply recommended insecticide if population exceeds threshold.",
-    ("brown_planthopper", "medium"): "Increase monitoring frequency at plant base; avoid dense planting.",
-    ("brown_planthopper", "low"): "No immediate action needed.",
+def load_knowledge_base():
+    kb_path = os.path.join(os.path.dirname(__file__), "..", "knowledge-base", "MASTER_TREATMENT_KNOWLEDGE_BASE_V2.json")
+    try:
+        with open(kb_path) as f:
+            return json.load(f)["classes"]
+    except (FileNotFoundError, KeyError):
+        return {}
 
-    ("tikka_leaf_spot", "high"): "Apply recommended fungicide (e.g., Chlorothalonil or Mancozeb) within 48 hours; remove and destroy infected leaves.",
-    ("tikka_leaf_spot", "medium"): "Monitor lower leaves for spots over next 3-4 days; ensure adequate plant spacing for airflow.",
-    ("tikka_leaf_spot", "low"): "No immediate action needed. Continue routine field monitoring.",
-    ("groundnut_rust", "high"): "Apply recommended fungicide (e.g., Hexaconazole) promptly; avoid overhead irrigation.",
-    ("groundnut_rust", "medium"): "Increase monitoring frequency; watch for orange pustules on leaf undersides.",
-    ("groundnut_rust", "low"): "No immediate action needed.",
+KB = load_knowledge_base()
 
-    ("sigatoka_leaf_spot", "high"): "Apply protectant fungicide spray immediately; remove and destroy heavily infected leaves.",
-    ("sigatoka_leaf_spot", "medium"): "Monitor leaf undersides for early lesions; improve field drainage and spacing.",
-    ("sigatoka_leaf_spot", "low"): "No immediate action needed. Continue routine monitoring.",
-    ("banana_aphid", "high"): "Rogue and destroy any plants showing bunchy top symptoms immediately; apply recommended insecticide.",
-    ("banana_aphid", "medium"): "Inspect new growth for aphid colonies; remove nearby volunteer banana plants.",
-    ("banana_aphid", "low"): "No immediate action needed.",
-
-    ("red_rot", "high"): "Remove and destroy infected canes immediately; avoid using infected material for planting; improve drainage.",
-    ("red_rot", "medium"): "Monitor for internal reddening in sample canes; avoid waterlogging.",
-    ("red_rot", "low"): "No immediate action needed.",
-    ("early_shoot_borer", "high"): "Apply recommended insecticide or biocontrol (e.g., Trichogramma) promptly; remove affected shoots.",
-    ("early_shoot_borer", "medium"): "Monitor young shoots for deadheart symptoms over the next few days.",
-    ("early_shoot_borer", "low"): "No immediate action needed.",
-
-    ("bud_rot", "high"): "Apply Bordeaux mixture or recommended fungicide to the crown immediately; improve drainage around the base.",
-    ("bud_rot", "medium"): "Inspect the crown/spear leaf closely for wilting or discoloration.",
-    ("bud_rot", "low"): "No immediate action needed.",
-    ("rhinoceros_beetle", "high"): "Remove nearby breeding sites (decaying matter, manure pits); apply pheromone traps or insecticide.",
-    ("rhinoceros_beetle", "medium"): "Inspect crown for characteristic V-shaped cuts in fronds; maintain field sanitation.",
-    ("rhinoceros_beetle", "low"): "No immediate action needed.",
-}
+def get_preventive_alert(class_id, risk_level):
+    entry = KB.get(class_id, {})
+    crop = entry.get("crop", "")
+    condition = entry.get("condition", class_id)
+    immediate_actions = entry.get("management", {}).get("immediate_actions", [])
+    if risk_level == "high" and immediate_actions:
+        return immediate_actions[0]
+    if risk_level == "high":
+        return f"High risk of {condition} — consult extension officer promptly."
+    if risk_level == "medium":
+        return f"Monitor {crop} closely for {condition} symptoms over the next few days."
+    return "No immediate action needed. Continue routine field monitoring."
 
 def fetch_forecast(lat, lng):
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lng}&appid={OPENWEATHER_API_KEY}&units=metric"
@@ -105,11 +102,21 @@ def severity_multiplier(level):
 
 def generate_forecast(primary_detection, needs_expert_validation, lat, lng):
     disease = primary_detection["prediction"]
+
+    if disease in HEALTHY_CLASSES:
+        return {
+            "outbreak_risk_percent": 0,
+            "risk_trend": {"direction": "stable", "daily": []},
+            "expected_window": None,
+            "spread_forecast": "No disease/pest detected — no elevated risk.",
+            "preventive_alert": "Continue routine field monitoring.",
+        }
+
     if disease not in DISEASE_PROFILES:
-        disease = "rice_blast"  # safe fallback so the demo never crashes
+        disease = "grape__downy_mildew"  # safe fallback so a demo never crashes on an unexpected label
 
     daily_weather = aggregate_daily(fetch_forecast(lat, lng))
-    dates = sorted(daily_weather.keys())[:5]
+    dates = sorted(daily_weather.keys())[:5]  # see note below on 5 vs 7 days
     mult = severity_multiplier(primary_detection.get("severity_level", "medium"))
 
     daily_scores = [{"date": d, "risk_percent": min(round(score_day(disease, daily_weather[d]) * mult), 100)} for d in dates]
@@ -118,8 +125,9 @@ def generate_forecast(primary_detection, needs_expert_validation, lat, lng):
     direction = "rising" if daily_scores[-1]["risk_percent"] > current else "falling" if daily_scores[-1]["risk_percent"] < current else "stable"
     risk_level = "high" if peak["risk_percent"] >= 70 else "medium" if peak["risk_percent"] >= 40 else "low"
 
+    crop_name = disease.split("__")[0]
     spread_text = {
-        "high": f"Rapid local spread likely within 2-3 days due to favorable conditions for {disease.replace('_',' ')}.",
+        "high": f"Rapid local spread likely within 2-3 days for {disease.split('__')[1].replace('_',' ')} on {crop_name}.",
         "medium": "Moderate spread possible over the next 4-5 days if conditions persist.",
         "low": "Low likelihood of spread under current forecast conditions.",
     }[risk_level]
@@ -129,10 +137,16 @@ def generate_forecast(primary_detection, needs_expert_validation, lat, lng):
         "risk_trend": {"direction": direction, "daily": daily_scores},
         "expected_window": {"start": peak["date"], "end": peak["date"]},
         "spread_forecast": spread_text,
-        "preventive_alert": PREVENTIVE_ALERTS.get((disease, risk_level), "Consult extension officer for guidance."),
+        "preventive_alert": get_preventive_alert(disease, risk_level),
     }
 
 if __name__ == "__main__":
-    import json
-    mock_detection = {"prediction": "sigatoka_leaf_spot", "confidence": 0.9, "severity_level": "medium"}
-    print(json.dumps(generate_forecast(mock_detection, False, lat=13.0827, lng=80.2707), indent=2))
+    all_classes = list(DISEASE_PROFILES.keys()) + list(HEALTHY_CLASSES)
+    for disease in all_classes:
+        mock = {"prediction": disease, "confidence": 0.85, "severity_level": "high"}
+        try:
+            result = generate_forecast(mock, False, lat=13.0827, lng=80.2707)
+            print(f"{disease}: OK — risk {result['outbreak_risk_percent']}%, alert: {result['preventive_alert'][:60]}")
+        except Exception as e:
+            print(f"{disease}: FAILED — {e}")
+    

@@ -12,6 +12,22 @@ DISEASE_PROFILES = {
                     "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
     "brown_planthopper": {"temp_range": (25, 32), "humidity_threshold": 80,
                     "rain_weight": 0.2, "humidity_weight": 0.5, "temp_weight": 0.3},
+    "tikka_leaf_spot": {"temp_range": (20, 30), "humidity_threshold": 80,
+                    "rain_weight": 0.3, "humidity_weight": 0.4, "temp_weight": 0.3},
+    "groundnut_rust": {"temp_range": (20, 25), "humidity_threshold": 85,
+                    "rain_weight": 0.2, "humidity_weight": 0.5, "temp_weight": 0.3},
+    "sigatoka_leaf_spot": {"temp_range": (25, 28), "humidity_threshold": 80,
+                    "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
+    "banana_aphid": {"temp_range": (24, 32), "humidity_threshold": 65,
+                    "rain_weight": 0.1, "humidity_weight": 0.3, "temp_weight": 0.6},
+    "red_rot": {"temp_range": (25, 30), "humidity_threshold": 85,
+                    "rain_weight": 0.4, "humidity_weight": 0.4, "temp_weight": 0.2},
+    "early_shoot_borer": {"temp_range": (28, 35), "humidity_threshold": 60,
+                    "rain_weight": 0.1, "humidity_weight": 0.2, "temp_weight": 0.7},
+    "bud_rot": {"temp_range": (20, 28), "humidity_threshold": 85,
+                    "rain_weight": 0.5, "humidity_weight": 0.35, "temp_weight": 0.15},
+    "rhinoceros_beetle": {"temp_range": (28, 34), "humidity_threshold": 70,
+                    "rain_weight": 0.3, "humidity_weight": 0.3, "temp_weight": 0.4},
 }
 
 PREVENTIVE_ALERTS = {
@@ -21,6 +37,34 @@ PREVENTIVE_ALERTS = {
     ("brown_planthopper", "high"): "Inspect plant base for hoppers; apply recommended insecticide if population exceeds threshold.",
     ("brown_planthopper", "medium"): "Increase monitoring frequency at plant base; avoid dense planting.",
     ("brown_planthopper", "low"): "No immediate action needed.",
+
+    ("tikka_leaf_spot", "high"): "Apply recommended fungicide (e.g., Chlorothalonil or Mancozeb) within 48 hours; remove and destroy infected leaves.",
+    ("tikka_leaf_spot", "medium"): "Monitor lower leaves for spots over next 3-4 days; ensure adequate plant spacing for airflow.",
+    ("tikka_leaf_spot", "low"): "No immediate action needed. Continue routine field monitoring.",
+    ("groundnut_rust", "high"): "Apply recommended fungicide (e.g., Hexaconazole) promptly; avoid overhead irrigation.",
+    ("groundnut_rust", "medium"): "Increase monitoring frequency; watch for orange pustules on leaf undersides.",
+    ("groundnut_rust", "low"): "No immediate action needed.",
+
+    ("sigatoka_leaf_spot", "high"): "Apply protectant fungicide spray immediately; remove and destroy heavily infected leaves.",
+    ("sigatoka_leaf_spot", "medium"): "Monitor leaf undersides for early lesions; improve field drainage and spacing.",
+    ("sigatoka_leaf_spot", "low"): "No immediate action needed. Continue routine monitoring.",
+    ("banana_aphid", "high"): "Rogue and destroy any plants showing bunchy top symptoms immediately; apply recommended insecticide.",
+    ("banana_aphid", "medium"): "Inspect new growth for aphid colonies; remove nearby volunteer banana plants.",
+    ("banana_aphid", "low"): "No immediate action needed.",
+
+    ("red_rot", "high"): "Remove and destroy infected canes immediately; avoid using infected material for planting; improve drainage.",
+    ("red_rot", "medium"): "Monitor for internal reddening in sample canes; avoid waterlogging.",
+    ("red_rot", "low"): "No immediate action needed.",
+    ("early_shoot_borer", "high"): "Apply recommended insecticide or biocontrol (e.g., Trichogramma) promptly; remove affected shoots.",
+    ("early_shoot_borer", "medium"): "Monitor young shoots for deadheart symptoms over the next few days.",
+    ("early_shoot_borer", "low"): "No immediate action needed.",
+
+    ("bud_rot", "high"): "Apply Bordeaux mixture or recommended fungicide to the crown immediately; improve drainage around the base.",
+    ("bud_rot", "medium"): "Inspect the crown/spear leaf closely for wilting or discoloration.",
+    ("bud_rot", "low"): "No immediate action needed.",
+    ("rhinoceros_beetle", "high"): "Remove nearby breeding sites (decaying matter, manure pits); apply pheromone traps or insecticide.",
+    ("rhinoceros_beetle", "medium"): "Inspect crown for characteristic V-shaped cuts in fronds; maintain field sanitation.",
+    ("rhinoceros_beetle", "low"): "No immediate action needed.",
 }
 
 def fetch_forecast(lat, lng):
@@ -90,5 +134,5 @@ def generate_forecast(primary_detection, needs_expert_validation, lat, lng):
 
 if __name__ == "__main__":
     import json
-    mock_detection = {"prediction": "rice_blast", "confidence": 0.88, "severity_level": "high"}
+    mock_detection = {"prediction": "sigatoka_leaf_spot", "confidence": 0.9, "severity_level": "medium"}
     print(json.dumps(generate_forecast(mock_detection, False, lat=13.0827, lng=80.2707), indent=2))
